@@ -17,12 +17,7 @@ const upload = multer({
 });
 
 // Fixed route handlers
-router.post(
-  "/upload",
-  auth,
-  upload.single("pdf"),
-  documentController.uploadDocument
-);
+router.post("/", auth, upload.single("pdf"), documentController.uploadDocument);
 router.get("/", documentController.getAllDocuments);
 router.get("/:id", documentController.getDocument);
 router.delete("/:id", auth, documentController.deleteDocument);

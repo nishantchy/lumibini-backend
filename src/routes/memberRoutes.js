@@ -1,22 +1,26 @@
 const express = require("express");
-const { auth } = require("../middleware/authMiddleware");
-const {
-  getAllMembers,
-  getMembersById,
-  createMembers,
-  updateMembers,
-  deleteMembers,
-} = require("../controllers/memberController");
-
 const router = express.Router();
+const memberController = require("../controllers/memberController");
+const { auth } = require("../middleware/authMiddleware");
+const multer = require("multer");
 
-// Public routes - no authentication needed
-router.get("/", getAllMembers);
-router.get("/:id", getMembersById);
+// Configure multer for temporary file storage
+const upload = multer({
+  storage: multer.diskStorage({}),
+  fileFilter: (req, file, cb) => {
+    const validMimeTypes = ["image/jpeg", "image/png", "image/gif"];
+    if (validMimeTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files (JPEG, PNG, GIF) are allowed!"), false);
+    }
+  },
+});
 
-// Protected routes - require authentication
-router.post("/", auth, createMembers);
-router.patch("/:id", auth, updateMembers);
-router.delete("/:id", auth, deleteMembers);
+// Route handlers
+router.post("/", auth, upload.single("image"), memberController.uploadMember);
+router.get("/", memberController.getAllMembers);
+router.get("/:id", memberController.getMember);
+router.delete("/:id", auth, memberController.deleteMember);
 
 module.exports = router;

@@ -1,147 +1,95 @@
-const cloudinary = require("../config/cloudinary");
 const Members = require("../models/Members");
+const cloudinary = require("../config/cloudinary");
+const fs = require("fs");
 
-// Get all Members
-exports.getAllMembers = async (req, res) => {
-  try {
-    const members = await Members.find().sort({ createdAt: -1 });
-    res.json(members);
-  } catch (error) {
-    console.error("Error fetching Members:", error);
-    res.status(500).json({ message: "Failed to fetch Members" });
-  }
-};
+module.exports = {
+  uploadMember: async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file uploaded." });
+      }
 
-// Get Members by ID
-exports.getMembersById = async (req, res) => {
-  try {
-    const member = await Members.findById(req.params.id);
-    if (!member) return res.status(404).json({ message: "Members not found" });
-    res.json(member);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
+      const { name, post } = req.body;
+      if (!name || !post) {
+        return res.status(400).json({ message: "name and post are required." });
+      }
 
-// Create Members
-// Create Members
-exports.createMembers = async (req, res) => {
-  try {
-    const { title, image, post } = req.body;
-
-    // Validate image input
-    if (!image || !Array.isArray(image) || image.length === 0) {
-      return res
-        .status(400)
-        .json({ message: "No images provided or invalid image format" });
-    }
-
-    // Log the images being uploaded
-    console.log("Image to upload:", image);
-
-    // Upload images to Cloudinary
-    const uploadPromises = image.map((i) => {
-      return cloudinary.uploader.upload(i, {
-        folder: "Members",
+      // Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "members",
       });
-    });
 
-    const uploadedImages = await Promise.all(uploadPromises);
-    const imageUrls = uploadedImages.map((img) => img.secure_url); // Get the secure URLs of the uploaded images
+      // Create member in database
+      const member = new Members({
+        name,
+        imageUrl: result.secure_url,
+        imagePublicId: result.public_id,
+        post,
+        user: req.user.id,
+      });
 
-    // Log the authenticated user for debugging
-    console.log("Authenticated User:", req.user);
+      await member.save();
 
-    // Create a new Members instance
-    const newMember = new Members({
-      title,
-      image: imageUrls,
-      post, // Store the array of image URLs
-      user: req.user.id,
-    });
+      // Clean up temporary file
+      fs.unlinkSync(req.file.path);
 
-    // Save the new Members to the database
-    await newMember.save();
-
-    return res.status(201).json({
-      message: "Member created successfully",
-      Member: newMember,
-    });
-  } catch (error) {
-    console.error("Error creating Members:", error.message);
-
-    // Check for specific Cloudinary errors
-    if (error.name === "Error") {
-      console.error("Cloudinary Error:", error.message);
+      res.status(201).json({
+        message: "Member uploaded successfully",
+        member,
+      });
+    } catch (error) {
+      if (req.file && req.file.path) {
+        fs.unlinkSync(req.file.path);
+      }
+      res.status(500).json({ message: "Server error", error: error.message });
     }
+  },
 
-    return res
-      .status(500)
-      .json({ message: "Failed to create Members", error: error.message });
-  }
-};
-// Update Members
-exports.updateMembers = async (req, res) => {
-  try {
-    const { title, newImages } = req.body;
-
-    const member = await Members.findById(req.params.id);
-    if (!member) {
-      return res.status(404).json({ message: "Members not found" });
+  getAllMembers: async (req, res) => {
+    try {
+      const members = await Members.find();
+      res.json(members);
+    } catch (error) {
+      res.status(500).json({ message: "Server error", error: error.message });
     }
+  },
 
-    if (req.user._id.toString() !== member.user.toString()) {
-      return res.status(403).json({ message: "Unauthorized" });
+  getMember: async (req, res) => {
+    try {
+      const member = await Members.findOne({
+        _id: req.params.id,
+      });
+
+      if (!member) {
+        return res.status(404).json({ message: "Member not found" });
+      }
+
+      res.json(member);
+    } catch (error) {
+      res.status(500).json({ message: "Server error", error: error.message });
     }
+  },
 
-    if (newImages && Array.isArray(newImages) && newImages.length > 0) {
-      const uploadPromises = newImages.map((image) =>
-        cloudinary.uploader.upload(image, {
-          folder: "Members",
-        })
-      );
+  deleteMember: async (req, res) => {
+    try {
+      const member = await Members.findOne({
+        _id: req.params.id,
+        user: req.user.id,
+      });
 
-      const uploadedImages = await Promise.all(uploadPromises);
-      const newImageUrls = uploadedImages.map((img) => img.secure_url);
-      member.image = [...member.image, ...newImageUrls];
+      if (!member) {
+        return res.status(404).json({ message: "Member not found" });
+      }
+
+      // Delete from Cloudinary
+      await cloudinary.uploader.destroy(member.imagePublicId);
+
+      // Delete from database
+      await member.deleteOne();
+
+      res.json({ message: "Member deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Server error", error: error.message });
     }
-
-    if (title) {
-      member.title = title;
-    }
-
-    await member.save();
-    res.json(member);
-  } catch (error) {
-    console.error("Error updating Members:", error);
-    res.status(500).json({ message: "Failed to update Members" });
-  }
-};
-
-// Delete Members
-exports.deleteMembers = async (req, res) => {
-  try {
-    const member = await Members.findById(req.params.id);
-    if (!member) {
-      return res.status(404).json({ message: "Members not found" });
-    }
-
-    if (req.user._id.toString() !== member.user.toString()) {
-      return res.status(403).json({ message: "Unauthorized" });
-    }
-
-    // Delete images from Cloudinary
-    const deletePromises = member.image.map((imageUrl) => {
-      const publicId = imageUrl.split("/").pop().split(".")[0];
-      return cloudinary.uploader.destroy(`Members/${publicId}`);
-    });
-
-    await Promise.all(deletePromises);
-    await member.deleteOne();
-
-    res.json({ message: "Members deleted successfully" });
-  } catch (error) {
-    console.error("Error deleting Members:", error);
-    res.status(500).json({ message: "Failed to delete Members" });
-  }
+  },
 };
