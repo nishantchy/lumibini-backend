@@ -22,7 +22,7 @@ const upload = multer({
 router.post(
   "/",
   auth,
-  upload.array("images", 10), // Accept up to 10 images
+  upload.array("images", 10), 
   galleryController.createGallery
 );
 router.get("/", galleryController.getAllGalleries);

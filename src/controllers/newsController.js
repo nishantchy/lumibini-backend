@@ -12,9 +12,17 @@ exports.getNewsById = async (req, res) => {
 };
 
 exports.createNews = async (req, res) => {
-  const news = new News({ ...req.body, user: req.user });
-  await news.save();
-  res.status(201).json(news);
+  try {
+    // Extract the user id from req.user
+    const userId = req.user.id || req.user._id;
+
+    // Create a new News document with the user id
+    const news = new News({ ...req.body, user: userId });
+    await news.save();
+    res.status(201).json(news);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
 };
 
 exports.updateNews = async (req, res) => {
