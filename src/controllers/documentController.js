@@ -70,26 +70,38 @@ module.exports = {
       res.status(500).json({ message: "Server error", error: error.message });
     }
   },
-
   deleteDocument: async (req, res) => {
     try {
-      const document = await Document.findOne({
-        _id: req.params.id,
-        user: req.user.id,
-      });
+      if (!req.user) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const userId = req.user._id || req.user.id;
+      const document = await Document.findById(req.params.id);
 
       if (!document) {
         return res.status(404).json({ message: "Document not found" });
       }
 
-      // Delete from Cloudinary
-      await cloudinary.uploader.destroy(document.pdfPublicId);
+      if (userId.toString() !== document.user.toString()) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
 
-      // Delete from database
+      try {
+        await cloudinary.uploader.destroy(document.pdfPublicId, {
+          resource_type: "raw",
+        });
+      } catch (cloudinaryError) {
+        console.error(`Error deleting image:`, cloudinaryError);
+        // You might want to handle this error more gracefully,
+        // such as attempting database deletion even if Cloudinary fails
+      }
+
       await document.deleteOne();
 
       res.json({ message: "Document deleted successfully" });
     } catch (error) {
+      console.error("Error deleting document:", error);
       res.status(500).json({ message: "Server error", error: error.message });
     }
   },
