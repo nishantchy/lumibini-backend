@@ -124,28 +124,55 @@ module.exports = {
 
   deleteGallery: async (req, res) => {
     try {
+      // First verify if we have a user in the request
+      if (!req.user) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const userId = req.user._id || req.user.id; // Handle both possible formats
+      if (!userId) {
+        return res
+          .status(401)
+          .json({ message: "User ID not found in request" });
+      }
+
       const gallery = await Gallery.findById(req.params.id);
       if (!gallery) {
         return res.status(404).json({ message: "Gallery not found" });
       }
 
-      if (req.user._id.toString() !== gallery.user.toString()) {
+      // Compare user ID with gallery owner ID
+      const requestUserId = userId.toString();
+      const galleryUserId = gallery.user.toString();
+
+      if (requestUserId !== galleryUserId) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
-      // Delete images from Cloudinary
-      const deletePromises = gallery.images.map((imageUrl) => {
-        const publicId = imageUrl.split("/").pop().split(".")[0];
-        return cloudinary.uploader.destroy(`galleries/${publicId}`);
-      });
+      // Delete images from Cloudinary using stored public IDs
+      if (gallery.imagePublicIds && gallery.imagePublicIds.length > 0) {
+        const deletePromises = gallery.imagePublicIds.map(async (publicId) => {
+          try {
+            return await cloudinary.uploader.destroy(publicId);
+          } catch (cloudinaryError) {
+            console.error(`Error deleting image ${publicId}:`, cloudinaryError);
+            // Continue with deletion even if Cloudinary fails
+            return null;
+          }
+        });
 
-      await Promise.all(deletePromises);
+        await Promise.all(deletePromises);
+      }
+
       await gallery.deleteOne();
 
       res.json({ message: "Gallery deleted successfully" });
     } catch (error) {
       console.error("Error deleting gallery:", error);
-      res.status(500).json({ message: "Failed to delete gallery" });
+      res.status(500).json({
+        message: "Failed to delete gallery",
+        error: error.message,
+      });
     }
   },
 };
